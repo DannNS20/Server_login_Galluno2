@@ -178,14 +178,13 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
         }
       }
     }
-
     res.json({ success: "Ganancias repartidas exitosamente." });
   } catch (error) {
     console.error('Error al repartir ganancias:', error);
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
-router.get('/obtenerapuestasBySalaRonda/:sala/:ronda', async (req, res) => {
+router.get('/obtenerapuestasBySalaRonda/:sala/:ronda',async (req, res) => {
   try {
     const sala = req.params.sala;
     const ronda = Number(req.params.ronda);
@@ -202,8 +201,10 @@ router.get('/obtenerapuestasBySalaRonda/:sala/:ronda', async (req, res) => {
   } catch (error) {
     console.error('Error al obtener apuestas por sala:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+
   }
 });
+
 router.get('/obtenerapuestasBySala/:sala', async (req, res) => {
   try {
     const sala = req.params.sala;
@@ -251,6 +252,195 @@ router.post('/enviarapuesta', async (req, res) => {
   } catch (error) {
     console.error('Error al procesar la solicitud POST:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+/**
+ * Endpoint atómico para emparejar apuestas usando transacciones de MongoDB
+ * Este endpoint previene condiciones de carrera al asegurar atomicidad en las operaciones
+ * 
+ * @route POST /api/apuestas/emparejarAtomico
+ * @body {string} apuestaId - ID de la apuesta a emparejar
+ * @body {number} cantidadOriginal - Cantidad original de la apuesta
+ * @body {string} room - Sala de la apuesta
+ * @body {number} ronda - Ronda de la apuesta
+ * @body {string} colorBuscado - Color opuesto a buscar ('rojo' o 'verde')
+ * @returns {Object} Resultado del emparejamiento con apuestas cazadas y cantidad restante
+ */
+router.post('/emparejarAtomico', async (req, res) => {
+  const session = await apuestaModel.db.startSession();
+  session.startTransaction();
+  
+  try {
+    const { apuestaId, cantidadOriginal, room, ronda, colorBuscado, username } = req.body;
+    const cantidadRestante = eliminarCentavos(Number(cantidadOriginal));
+    
+    if (!apuestaId || !cantidadOriginal || !room || !ronda || !colorBuscado) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(400).json({ error: 'Parámetros incompletos' });
+    }
+
+    const apuestasCazadas = [];
+    let cantidadTotalCazada = 0;
+    let cantidadPendiente = cantidadRestante;
+
+    // Construir query para buscar apuestas compatibles
+    const queryColor = colorBuscado === 'rojo' ? { rojo: 'rojo' } : { verde: 'verde' };
+    
+    // Buscar apuestas en_espera del color opuesto, excluyendo la apuesta actual y del mismo usuario
+    const apuestasCompatibles = await apuestaModel.find({
+      ...queryColor,
+      sala: room,
+      ronda: ronda,
+      estado: 'en_espera',
+      _id: { $ne: apuestaId },
+      username: { $ne: username }
+    })
+    .sort({ fecha: 1 }) // Ordenar por fecha (más antiguas primero)
+    .session(session)
+    .lean();
+
+    // Procesar emparejamientos de forma atómica
+    for (const apuestaCompatible of apuestasCompatibles) {
+      if (cantidadPendiente <= 0) break;
+
+      const cantidadACazar = Math.min(cantidadPendiente, apuestaCompatible.cantidad);
+
+      // Intentar actualizar la apuesta compatible de forma atómica
+      // Solo se actualiza si todavía está en estado 'en_espera' (previene doble caza)
+      const apuestaActualizada = await apuestaModel.findOneAndUpdate(
+        {
+          _id: apuestaCompatible._id,
+          estado: 'en_espera' // Condición crítica: solo actualizar si sigue en espera
+        },
+        {
+          $set: {
+            estado: 'cazada',
+            cantidad: cantidadACazar
+          }
+        },
+        {
+          session,
+          new: true
+        }
+      );
+
+      // Si la actualización falló (otro proceso ya la cazó), continuar con la siguiente
+      if (!apuestaActualizada) {
+        console.log(`Apuesta ${apuestaCompatible._id} ya fue cazada por otro proceso, saltando...`);
+        continue;
+      }
+
+      apuestasCazadas.push({
+        apuestaId: apuestaActualizada._id,
+        username: apuestaActualizada.username,
+        cantidad: cantidadACazar
+      });
+
+      cantidadTotalCazada += cantidadACazar;
+      cantidadPendiente -= cantidadACazar;
+
+      // Si la apuesta compatible era mayor, crear una nueva apuesta con el resto
+      if (apuestaCompatible.cantidad > cantidadACazar) {
+        const saldoRestante = eliminarCentavos(apuestaCompatible.cantidad - cantidadACazar);
+        const nuevaApuestaRestante = new apuestaModel({
+          username: apuestaCompatible.username,
+          rojo: apuestaCompatible.rojo,
+          verde: apuestaCompatible.verde,
+          cantidad: saldoRestante,
+          fecha: apuestaCompatible.fecha,
+          sala: room,
+          ronda: ronda,
+          estado: 'en_espera'
+        });
+        await nuevaApuestaRestante.save({ session });
+      }
+    }
+
+    // Actualizar la apuesta original
+    if (cantidadTotalCazada > 0) {
+      // Primero obtener la información de la apuesta original antes de actualizarla
+      const apuestaOriginal = await apuestaModel.findById(apuestaId).session(session).lean();
+      
+      if (!apuestaOriginal) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ error: 'Apuesta original no encontrada' });
+      }
+
+      // Si la apuesta ya fue procesada por otro proceso, hacer rollback
+      if (apuestaOriginal.estado !== 'en_espera') {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(409).json({ 
+          error: 'La apuesta ya fue procesada por otro proceso',
+          conflict: true 
+        });
+      }
+
+      // Actualizar la apuesta original
+      const apuestaOriginalActualizada = await apuestaModel.findOneAndUpdate(
+        {
+          _id: apuestaId,
+          estado: 'en_espera' // Solo actualizar si sigue en espera
+        },
+        {
+          $set: {
+            estado: 'cazada',
+            cantidad: cantidadTotalCazada
+          }
+        },
+        {
+          session,
+          new: true
+        }
+      );
+
+      if (!apuestaOriginalActualizada) {
+        // Si la actualización falló (otro proceso la procesó entre la lectura y la escritura)
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(409).json({ 
+          error: 'La apuesta ya fue procesada por otro proceso',
+          conflict: true 
+        });
+      }
+
+      // Si queda cantidad pendiente, crear nueva apuesta
+      if (cantidadPendiente > 0) {
+        const nuevaApuestaRestante = new apuestaModel({
+          username: apuestaOriginal.username,
+          rojo: apuestaOriginal.rojo,
+          verde: apuestaOriginal.verde,
+          cantidad: cantidadPendiente,
+          fecha: apuestaOriginal.fecha,
+          sala: room,
+          ronda: ronda,
+          estado: 'en_espera'
+        });
+        await nuevaApuestaRestante.save({ session });
+      }
+    }
+
+    // Confirmar transacción
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({
+      success: true,
+      apuestasCazadas,
+      cantidadTotalCazada,
+      cantidadRestante: cantidadPendiente,
+      fueCompletamenteCazada: cantidadPendiente === 0
+    });
+
+  } catch (error) {
+    // Rollback en caso de error
+    await session.abortTransaction();
+    session.endSession();
+    console.error('Error en emparejamiento atómico:', error);
+    res.status(500).json({ error: 'Error al procesar el emparejamiento', details: error.message });
   }
 });
 
@@ -349,7 +539,7 @@ router.put('/devolverApuestasEnEspera/:sala/:ronda', async (req, res) => {
       acc[apuesta.username] += apuesta.cantidad;
       return acc;
     }, {});
-
+    console.log("apuestas por usuario:",apuestasPorUsuario);
     // Devolver las apuestas a los usuarios
     await Promise.all(Object.keys(apuestasPorUsuario).map(async (username) => {
       const cantidadTotal = eliminarCentavos(apuestasPorUsuario[username]); // Añadir redondeo
@@ -374,31 +564,30 @@ router.put('/restarSaldo', async (req, res) => {
   try {
     const { username, cantidad } = req.body;
 
-    // Buscar al usuario por su username
-    const user = await userModel.findOne({ username });
-
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    // Validar que el usuario tenga suficiente saldo para restar
-    if (user.saldo < cantidad) {
-      return res.status(400).json({ error: 'Saldo insuficiente' });
-    }
-
-    // Calcular el nuevo saldo
+    // Validar que el monto sea un número válido
     const cantidadRedondeada = eliminarCentavos(cantidad);
-      const saldoNuevo = eliminarCentavos(user.saldo - cantidadRedondeada); // Redondear resultado
+    if (isNaN(cantidadRedondeada) || cantidadRedondeada <= 0) {
+      return res.status(400).json({ error: 'La cantidad debe ser un número positivo' });
+    }
 
-    // Actualizar el saldo del usuario
+    // CORRECCIÓN: Usar $inc con condición para atomicidad y validación de saldo
+    // Esto previene condiciones de carrera donde dos procesos intentan restar simultáneamente
     const updatedUser = await userModel.findOneAndUpdate(
-      { username },
-      { $set: { saldo: saldoNuevo } },
+      { 
+        username,
+        saldo: { $gte: cantidadRedondeada } // Solo actualizar si hay saldo suficiente
+      },
+      { $inc: { saldo: -cantidadRedondeada } }, // Operación atómica
       { new: true }  // Para devolver el usuario actualizado
     );
 
     if (!updatedUser) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
+      // Verificar si el usuario existe o si simplemente no tiene saldo suficiente
+      const user = await userModel.findOne({ username });
+      if (!user) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+      return res.status(400).json({ error: 'Saldo insuficiente' });
     }
 
     // Respuesta de éxito con el saldo actualizado
@@ -508,8 +697,8 @@ router.get('/historialDetallado/:username', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener historial' });
   }
 });
+router.get('/historialPorRondas/:username',async (req, res) => {
 
-router.get('/historialPorRondas/:username', async (req, res) => {
   try {
     const username = req.params.username;
     
@@ -658,7 +847,7 @@ router.get('/historialPorRondas/:username', async (req, res) => {
 });
 
 //End point para el resumen de las apuestas 
-router.get('/resumen-stream/:sala', async (req, res) => {
+router.get( '/resumen-stream/:sala',async (req, res) => {
   try {
     const sala = req.params.sala;
     
