@@ -50,53 +50,135 @@ router.get('/obtenerMensajes', async (req, res) => {
 //   });
 router.get('/obtenerMensajesBySala/:sala', async (req, res) => {
   try {
-      const sala = req.params.sala;
-
-      // Buscar todos los mensajes que coincidan con la sala
-      const mensajes = await mensajeModel.find({ sala });
-
-      if (mensajes.length === 0) {
-          return res.json({});
-      }
-
-      // Si hay mensajes, revisa si tienen una imagen
-      const mensajesConImagenes = await Promise.all(mensajes.map(async (mensaje) => {
-          if (mensaje.image) {
-              const imagePath = path.join(__dirname, '../../imagenes', mensaje.image);
-              return {
-                  ...mensaje.toObject(),
-                  image: imagePath
-              };
-          } else {
-              return mensaje;
+    const sala = req.params.sala;
+    console.log('=== BACKEND DEBUG - OBTENIENDO MENSAJES ===');
+    console.log('Sala solicitada:', sala);
+    // Buscar y ORDENAR por fecha para que lleguen en orden correcto
+    const mensajes = await mensajeModel.find({ sala }).sort({ fecha: 1 });
+    console.log('Total mensajes encontrados:', mensajes.length);
+    if (mensajes.length === 0) {
+      console.log('No hay mensajes para esta sala');
+      return res.json({});
+    }
+    // DEBUG: Ver el primer mensaje
+    const primerMensaje = mensajes[0];
+    console.log('\n=== DEBUG PRIMER MENSAJE ===');
+    console.log('ID:', primerMensaje._id);
+    console.log('Fecha en DB:', primerMensaje.fecha);
+    console.log('Tipo de fecha:', typeof primerMensaje.fecha);
+    console.log('Contenido:', primerMensaje.contenido);
+    if (primerMensaje.fecha) {
+      console.log('Fecha como string:', primerMensaje.fecha.toString());
+      console.log('Fecha ISO:', primerMensaje.fecha.toISOString());
+      console.log('Timestamp:', primerMensaje.fecha.getTime());
+    }
+    console.log('=== FIN DEBUG ===\n');
+    // Procesar todos los mensajes
+    const mensajesConImagenes = await Promise.all(mensajes.map(async (mensaje) => {
+      const mensajeObj = mensaje.toObject();
+      // Crear objeto base con TODAS las fechas serializadas
+      const mensajeFormateado = {
+        _id: mensajeObj._id.toString(),
+        username: mensajeObj.username,
+        contenido: mensajeObj.contenido,
+        message: mensajeObj.contenido, // Para compatibilidad con frontend
+        image: mensajeObj.image || '',
+        sala: mensajeObj.sala,
+        // ¡¡¡IMPORTANTE!!! Serializar TODAS las fechas como strings
+        fecha: mensajeObj.fecha ? mensajeObj.fecha.toISOString() : null,
+        date: mensajeObj.fecha ? mensajeObj.fecha.toISOString() : null, // Duplicado como 'date'
+        createdAt: mensajeObj.createdAt ? mensajeObj.createdAt.toISOString() : null,
+        updatedAt: mensajeObj.updatedAt ? mensajeObj.updatedAt.toISOString() : null,
+        // También enviar como timestamp numérico
+        timestamp: mensajeObj.fecha ? mensajeObj.fecha.getTime() : null,
+        // Debug info
+        __debug: {
+          hasFechaField: !!mensajeObj.fecha,
+          fechaType: typeof mensajeObj.fecha,
+          fechaValue: mensajeObj.fecha,
+          fechaISO: mensajeObj.fecha ? mensajeObj.fecha.toISOString() : 'NO DATE'
+        }
+      };
+      // Si hay imagen, ajustar el path
+      if (mensajeObj.image) {
+        try {
+          const imagePath = path.join(__dirname, '../../imagenesMensajes', mensajeObj.image);
+          // Verificar si el archivo existe
+          const fs = require('fs');
+          if (fs.existsSync(imagePath)) {
+            mensajeFormateado.image = `/api/mensajes/get-image/${mensajeObj._id}`;
           }
-      }));
-
-      res.json(mensajesConImagenes);
+        } catch (error) {
+          console.error('Error procesando imagen:', error);
+        }
+      }
+      return mensajeFormateado;
+    }));
+    console.log('=== MENSAJES ENVIADOS AL FRONTEND ===');
+    console.log('Total mensajes a enviar:', mensajesConImagenes.length);
+    if (mensajesConImagenes.length > 0) {
+      console.log('Primer mensaje enviado:', {
+        _id: mensajesConImagenes[0]._id,
+        username: mensajesConImagenes[0].username,
+        contenido: mensajesConImagenes[0].contenido?.substring(0, 50),
+        fecha: mensajesConImagenes[0].fecha,
+        date: mensajesConImagenes[0].date,
+        timestamp: mensajesConImagenes[0].timestamp
+      });
+    }
+    console.log('=== FIN BACKEND ===\n');
+    res.json(mensajesConImagenes);
   } catch (error) {
-      console.error('Error al obtener mensajes por sala:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+    console.error('Error al obtener mensajes por sala:', error);
+    res.status(500).json({ 
+      error: 'Error interno del servidor',
+      details: error.message 
+    });
   }
 });
   
 router.post('/enviarMensaje',async (req, res) => {
   try {
     let pathFinal = '';
+    // Asegurarse de que la fecha sea un objeto Date válido
+    let fechaMensaje = null;
+    if (req.body.date) {
+      // Si viene como string, intentar parsear
+      fechaMensaje = new Date(req.body.date);
+      if (isNaN(fechaMensaje.getTime())) {
+        fechaMensaje = new Date();
+      }
+    } else {
+      fechaMensaje = new Date();
+    }
     // Construir el mensaje a guardar en la base de datos
     const newMessage = new mensajeModel({
       username: req.body.username,
       contenido: req.body.message,
       image: pathFinal,
-      fecha: req.body.date,
+      fecha: fechaMensaje,
       sala: req.body.room,
     });
-
     // Guardar el mensaje en la base de datos
     await newMessage.save();
-    console.log(newMessage);
 
-    // Responder al cliente con éxito y el ID del mensaje
-    return res.json({ data: "Mensaje ingresado!", messageId: newMessage._id });
+    // LOGS DETALLADOS
+    console.log('=== BACKEND DEBUG - MENSAJE GUARDADO ===');
+    console.log('ID:', newMessage._id);
+    console.log('Fecha guardada (tipo):', typeof newMessage.fecha);
+    console.log('Fecha guardada (valor):', newMessage.fecha);
+    if (newMessage.fecha) {
+      console.log('Fecha guardada (toISOString):', newMessage.fecha.toISOString());
+      console.log('Fecha guardada (timestamp):', newMessage.fecha.getTime());
+    }
+    console.log('=== FIN DEBUG ===');
+
+    // Responder al cliente con éxito y el ID del mensaje y la fecha real
+    return res.json({ 
+      data: "Mensaje ingresado!", 
+      messageId: newMessage._id,
+      fecha: newMessage.fecha ? newMessage.fecha.toISOString() : null // <-- AÑADE ESTO
+    });
   } catch (error) {
     console.error('Error al procesar la solicitud POST:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
