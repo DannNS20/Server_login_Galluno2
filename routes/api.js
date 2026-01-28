@@ -16,5 +16,6 @@ router.use('/rifas', require('./api/rifa'));
 router.use('/corte-diario', require('./api/corteDiario'));
 router.use('/tabla', require('./api/tabla'));
 router.use('/settings', require('./api/settings'));
+router.use('/reports', require('./api/reports'));
 
 module.exports = router;

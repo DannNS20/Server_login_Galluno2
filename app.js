@@ -1,6 +1,10 @@
 const express = require("express");
 require('dotenv').config();
 require('./config/db');
+const { initCron } = require('./services/email.service');
+
+// Iniciar Cron
+initCron();
 
 const app = express();
 const http = require('http').createServer(app); // Cambia aquí
