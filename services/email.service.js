@@ -23,11 +23,8 @@ function validateCredentials() {
 
     if (missing.length > 0) {
         console.error('[EmailService] ⚠️  CREDENCIALES FALTANTES:', missing.join(', '));
-        console.error('[EmailService] El servicio de email NO funcionará hasta que configures estas variables en .env');
         return false;
     }
-
-    console.log('[EmailService] ✓ Credenciales de Gmail configuradas correctamente');
     return true;
 }
 
@@ -101,11 +98,7 @@ function makeBody(to, from, subject, message, attachmentContent, attachmentName)
  * Sends the activity report email.
  */
 async function sendActivityReport() {
-    console.log('[EmailService] Iniciando generación de reporte...');
-
-    // Check if credentials are valid before attempting to send
     if (!credentialsValid) {
-        console.error('[EmailService] ❌ No se puede enviar el correo: credenciales no configuradas');
         throw new Error('Gmail credentials not configured. Please check your .env file.');
     }
 
@@ -136,7 +129,6 @@ async function sendActivityReport() {
             },
         });
 
-        console.log('[EmailService] Correo enviado correctamente. ID:', res.data.id);
         return { success: true, messageId: res.data.id };
 
     } catch (error) {
@@ -146,55 +138,66 @@ async function sendActivityReport() {
 }
 
 /**
- * Tries to acquire a distributed lock.
+ * Tries to acquire a distributed lock using atomic operations.
  * Returns true if lock acquired, false if already locked/recently run.
+ * This prevents race conditions when multiple replicas try to acquire the lock simultaneously.
  */
 async function acquireLock(lockName) {
     const LOCK_DURATION_MS = 14 * 60 * 1000; // ~14 min (para cron de 15 min)
     const now = new Date();
     const threshold = new Date(now.getTime() - LOCK_DURATION_MS);
 
-    // Intenta encontrar un lock que sea viejo o no exista
-    const lock = await CronLock.findOne({ name: lockName });
+    try {
+        // OPERACIÓN ATÓMICA: Intenta actualizar solo si el lock no existe o es viejo
+        const result = await CronLock.findOneAndUpdate(
+            {
+                name: lockName,
+                $or: [
+                    { lastRun: { $lt: threshold } }, // Lock viejo
+                    { lastRun: { $exists: false } }   // Lock no existe
+                ]
+            },
+            {
+                $set: {
+                    lastRun: now,
+                    status: 'LOCKED',
+                    replicaId: process.env.HOSTNAME || process.pid.toString()
+                }
+            },
+            {
+                upsert: true,  // Crear si no existe
+                new: true,     // Retornar el documento actualizado
+                setDefaultsOnInsert: true
+            }
+        );
 
-    if (!lock) {
-        // Crear nuevo lock
-        await CronLock.create({ name: lockName, lastRun: now, status: 'LOCKED' });
-        return true;
+        // Si result es null, significa que otra réplica ya tiene el lock
+        if (result) {
+            return true;
+        }
+        return false;
+
+    } catch (error) {
+        // Si hay error de duplicado (E11000), otra réplica ganó la carrera
+        if (error.code === 11000) {
+            return false;
+        }
+        throw error;
     }
-
-    if (lock.lastRun < threshold) {
-        // El lock es viejo, lo tomamos
-        lock.lastRun = now;
-        lock.status = 'LOCKED';
-        await lock.save();
-        return true;
-    }
-
-    // Lock activo reciente
-    return false;
 }
 
 /**
  * Initializes the Cron Job.
  */
 function initCron() {
-    console.log(`[EmailService] Inicializando Cron Job con schedule: ${CRON_SCHEDULE}`);
-
     cron.schedule(CRON_SCHEDULE, async () => {
-        console.log('[EmailService] Cron disparado. Intentando adquirir lock...');
-
         try {
             const hasLock = await acquireLock('activity-report');
-
             if (hasLock) {
-                console.log('[EmailService] Lock adquirido. Enviando reporte...');
                 await sendActivityReport();
-            } else {
-                console.log('[EmailService] Lock ocupado o reciente. Saltando ejecución.');
             }
         } catch (error) {
-            console.error('[EmailService] Error en ejecución del CRON:', error);
+            console.error('[EmailService] Error en CRON:', error);
         }
     });
 }
