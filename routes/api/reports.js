@@ -9,13 +9,10 @@ const { sendActivityReport } = require('../../services/email.service');
  */
 router.post('/send', async (req, res) => {
     try {
-        console.log('[API] Solicitud manual de envío de reporte recibida.');
-        // Llama a la función que hemos definido en el servicio de correo.
         const result = await sendActivityReport();
         res.status(200).json(result);
     } catch (error) {
-        // Si algo sale mal en el servicio, el error se captura aquí.
-        console.error('Error al intentar enviar el reporte manualmente:', error);
+        console.error('[API] Error al enviar reporte:', error);
         res.status(500).json({ success: false, message: error.message || 'Error interno del servidor.' });
     }
 });
