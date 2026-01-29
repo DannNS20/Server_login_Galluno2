@@ -13,15 +13,37 @@ const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN;
 const EMAIL_TO = process.env.EMAIL_TO || "posmarcosalch@gmail.com";
 const CRON_SCHEDULE = process.env.CRON_SCHEDULE || "*/15 * * * *";
 
+// Validate credentials at startup
+function validateCredentials() {
+    const missing = [];
+    if (!GMAIL_USER) missing.push('GMAIL_USER');
+    if (!GMAIL_CLIENT_ID) missing.push('GMAIL_CLIENT_ID');
+    if (!GMAIL_CLIENT_SECRET) missing.push('GMAIL_CLIENT_SECRET');
+    if (!GMAIL_REFRESH_TOKEN) missing.push('GMAIL_REFRESH_TOKEN');
+
+    if (missing.length > 0) {
+        console.error('[EmailService] ⚠️  CREDENCIALES FALTANTES:', missing.join(', '));
+        console.error('[EmailService] El servicio de email NO funcionará hasta que configures estas variables en .env');
+        return false;
+    }
+
+    console.log('[EmailService] ✓ Credenciales de Gmail configuradas correctamente');
+    return true;
+}
+
+const credentialsValid = validateCredentials();
+
 const oauth2Client = new google.auth.OAuth2(
     GMAIL_CLIENT_ID,
     GMAIL_CLIENT_SECRET,
     "https://developers.google.com/oauthplayground"
 );
 
-oauth2Client.setCredentials({
-    refresh_token: GMAIL_REFRESH_TOKEN
-});
+if (credentialsValid && GMAIL_REFRESH_TOKEN) {
+    oauth2Client.setCredentials({
+        refresh_token: GMAIL_REFRESH_TOKEN
+    });
+}
 
 const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
@@ -80,6 +102,12 @@ function makeBody(to, from, subject, message, attachmentContent, attachmentName)
  */
 async function sendActivityReport() {
     console.log('[EmailService] Iniciando generación de reporte...');
+
+    // Check if credentials are valid before attempting to send
+    if (!credentialsValid) {
+        console.error('[EmailService] ❌ No se puede enviar el correo: credenciales no configuradas');
+        throw new Error('Gmail credentials not configured. Please check your .env file.');
+    }
 
     try {
         const csvContent = await generateUserReportCSV();
