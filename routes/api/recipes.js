@@ -20,7 +20,7 @@ cron.schedule('0 7 */2 * *', async () => {
         for (const recibo of recibosAprobados) {
             if (recibo.image) {
                 const imagePath = path.join(__dirname, '../../imagenesRecipes', recibo.image);
-                fs.unlink(imagePath, (err) => {});
+                fs.unlink(imagePath, (err) => { });
                 // Actualiza el campo image a null
                 await Recipe.findByIdAndUpdate(recibo._id, { image: null });
             }
@@ -31,45 +31,60 @@ cron.schedule('0 7 */2 * *', async () => {
     }
 });
 
-const helperImg = (filePath,fileName,size= 100) => {
-    return sharp(filePath)
-        //.resize(size,size)
-        .toFile(`./imagenesRecipes/${fileName}`);
-
+const helperImg = async (filePath, fileName, size = 100) => {
+    console.log(`[DEBUG] helperImg: Iniciando procesamiento de imagen: ${fileName}`);
+    try {
+        await sharp(filePath)
+            //.resize(size,size)
+            .toFile(`./imagenesRecipes/${fileName}`);
+        console.log(`[DEBUG] helperImg: Imagen procesada guardada en ./imagenesRecipes/${fileName}`);
+    } catch (error) {
+        console.error(`[DEBUG] helperImg: Error procesando imagen ${fileName}:`, error);
+        throw error;
+    }
 }
 
 const storage = multer.diskStorage({
-    destination:(req, file,cb) =>{
-        cb(null,'./uploadsRecipes' )
+    destination: (req, file, cb) => {
+        cb(null, './uploadsRecipes')
     },
-    filename:(req,file,cb) => {
+    filename: (req, file, cb) => {
         const ext = file.originalname.split('.').pop()
         cb(null, `${Date.now()}.png`)
     }
 
 });
-const upload = multer({storage
+const upload = multer({
+    storage
 });
 
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), async (req, res) => {
 
-    console.log(req.file);
-    helperImg(req.file.path, `resize-${req.file.filename}`)
+    console.log('[DEBUG] /upload: Archivo recibido:', req.file);
+    try {
+        await helperImg(req.file.path, `resize-${req.file.filename}`)
+        console.log('[DEBUG] /upload: helperImg completado');
+    } catch (err) {
+        console.error('[DEBUG] /upload: Error en helperImg:', err);
+        return res.status(500).json({ error: 'Error procesando imagen' });
+    }
     const path = `resize-${req.file.filename}`;
 
-// Utilizamos split para obtener el nombre sin extensión y la extensión
+    // Utilizamos split para obtener el nombre sin extensión y la extensión
     const [nombreSinExtension, extension] = path.split('.');
 
-// Construimos el nuevo nombre del archivo
+    // Construimos el nuevo nombre del archivo
     const pathFinal = `${nombreSinExtension}.png`;
 
-    res.send({ path: pathFinal})
+    res.send({ path: pathFinal })
 });
- 
+
 router.post('/register', upload.single('file'), async (req, res) => {
     try {
         if (req.file) {
-            helperImg(req.file.path, `resize-${req.file.filename}`);
+            console.log('[DEBUG] /register: Archivo recibido. Iniciando procesamiento...');
+            await helperImg(req.file.path, `resize-${req.file.filename}`);
+            console.log('[DEBUG] /register: helperImg completado.');
             const path = `resize-${req.file.filename}`;
             const [nombreSinExtension, extension] = path.split('.');
             const pathFinal = `${nombreSinExtension}.png`;
@@ -129,7 +144,7 @@ router.get('/get-all-recipes', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-   
+
 });
 
 router.get('/get-image/:id', async (req, res) => {
@@ -151,7 +166,7 @@ router.get('/get-image/:id', async (req, res) => {
         }
 
         // Construir la ruta completa al archivo de imagen
-        const imagePath = path.join(__dirname, '../../' ,'imagenesRecipes', imageName);
+        const imagePath = path.join(__dirname, '../../', 'imagenesRecipes', imageName);
         console.log(imagePath);
 
         // Enviar la imagen como respuesta
