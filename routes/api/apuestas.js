@@ -5,10 +5,10 @@ const userModel = require('../../models/user.model');
 const eliminarCentavos = (monto) => Math.floor(monto); // 10.99 → 10
 
 router.get('/obtenerapuestas', async (req, res) => {
-    res.send("hola");
+  res.send("hola");
 });
 
-router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => { 
+router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
   try {
     const sala = req.params.sala;
     const ronda = Number(req.params.ronda);
@@ -18,7 +18,7 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
     if (ganador !== 'rojo' && ganador !== 'verde') {
       return res.status(400).json({ error: "El color ganador debe ser 'rojo' o 'verde'." });
     }
-     const colorPerdedor = ganador === 'rojo' ? 'verde' : 'rojo';
+    const colorPerdedor = ganador === 'rojo' ? 'verde' : 'rojo';
     const queryPerdedores = {
       sala,
       ronda,
@@ -74,7 +74,7 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
           { new: true }
         );
       }
-      
+
       console.log(`[Repartir con Ajustes] Ganancias repartidas con ajustes manuales. Comisión total para BANCA: ${comisionBancaTotal}`);
 
     } else {
@@ -87,8 +87,8 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
         return res.json({ message: "No hay apuestas cazadas para esta sala y ronda." });
       }
 
-      const apuestasGanadoras = apuestas.filter(apuesta => 
-        (ganador === 'rojo' && apuesta.rojo !== '') || 
+      const apuestasGanadoras = apuestas.filter(apuesta =>
+        (ganador === 'rojo' && apuesta.rojo !== '') ||
         (ganador === 'verde' && apuesta.verde !== '')
       );
 
@@ -115,7 +115,7 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
           { $inc: { saldo: comisionBanca } },
           { new: true }
         );
-        await apuestaModel.findByIdAndUpdate(apuesta._id, { 
+        await apuestaModel.findByIdAndUpdate(apuesta._id, {
           estado: 'pagada',
           cantidadOriginal: apuesta.cantidad,
           colorOriginal: apuesta.rojo ? 'rojo' : 'verde',
@@ -184,7 +184,7 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor.' });
   }
 });
-router.get('/obtenerapuestasBySalaRonda/:sala/:ronda',async (req, res) => {
+router.get('/obtenerapuestasBySalaRonda/:sala/:ronda', async (req, res) => {
   try {
     const sala = req.params.sala;
     const ronda = Number(req.params.ronda);
@@ -227,7 +227,7 @@ router.get('/obtenerapuestasBySala/:sala', async (req, res) => {
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
-  
+
 router.post('/enviarapuesta', async (req, res) => {
   try {
     // Construir la apuesta a guardar en la base de datos
@@ -270,11 +270,11 @@ router.post('/enviarapuesta', async (req, res) => {
 router.post('/emparejarAtomico', async (req, res) => {
   const session = await apuestaModel.db.startSession();
   session.startTransaction();
-  
+
   try {
     const { apuestaId, cantidadOriginal, room, ronda, colorBuscado, username } = req.body;
     const cantidadRestante = eliminarCentavos(Number(cantidadOriginal));
-    
+
     if (!apuestaId || !cantidadOriginal || !room || !ronda || !colorBuscado) {
       await session.abortTransaction();
       session.endSession();
@@ -287,7 +287,7 @@ router.post('/emparejarAtomico', async (req, res) => {
 
     // Construir query para buscar apuestas compatibles
     const queryColor = colorBuscado === 'rojo' ? { rojo: 'rojo' } : { verde: 'verde' };
-    
+
     // Buscar apuestas en_espera del color opuesto, excluyendo la apuesta actual y del mismo usuario
     const apuestasCompatibles = await apuestaModel.find({
       ...queryColor,
@@ -297,9 +297,9 @@ router.post('/emparejarAtomico', async (req, res) => {
       _id: { $ne: apuestaId },
       username: { $ne: username }
     })
-    .sort({ fecha: 1 }) // Ordenar por fecha (más antiguas primero)
-    .session(session)
-    .lean();
+      .sort({ fecha: 1 }) // Ordenar por fecha (más antiguas primero)
+      .session(session)
+      .lean();
 
     // Procesar emparejamientos de forma atómica
     for (const apuestaCompatible of apuestasCompatibles) {
@@ -362,7 +362,7 @@ router.post('/emparejarAtomico', async (req, res) => {
     if (cantidadTotalCazada > 0) {
       // Primero obtener la información de la apuesta original antes de actualizarla
       const apuestaOriginal = await apuestaModel.findById(apuestaId).session(session).lean();
-      
+
       if (!apuestaOriginal) {
         await session.abortTransaction();
         session.endSession();
@@ -373,9 +373,9 @@ router.post('/emparejarAtomico', async (req, res) => {
       if (apuestaOriginal.estado !== 'en_espera') {
         await session.abortTransaction();
         session.endSession();
-        return res.status(409).json({ 
+        return res.status(409).json({
           error: 'La apuesta ya fue procesada por otro proceso',
-          conflict: true 
+          conflict: true
         });
       }
 
@@ -401,9 +401,9 @@ router.post('/emparejarAtomico', async (req, res) => {
         // Si la actualización falló (otro proceso la procesó entre la lectura y la escritura)
         await session.abortTransaction();
         session.endSession();
-        return res.status(409).json({ 
+        return res.status(409).json({
           error: 'La apuesta ya fue procesada por otro proceso',
-          conflict: true 
+          conflict: true
         });
       }
 
@@ -444,25 +444,25 @@ router.post('/emparejarAtomico', async (req, res) => {
   }
 });
 
-  router.delete('/borrarapuesta/:id', async (req, res) => {
-    try {
-      const apuestaId = req.params.id;
-  
-      // Verificar si el apuesta existe antes de intentar borrarlo
-      const apuestaExistente = await apuestaModel.findById(apuestaId);
-      if (!apuestaExistente) {
-        return res.status(404).json({ error: 'apuesta no encontrado' });
-      }
-  
-      // Borrar el apuesta
-      //await apuestaModel.findByIdAndDelete(apuestaId);
-  
-      res.json({ apuesta: 'apuesta borrado exitosamente' });
-    } catch (error) {
-      console.error('Error al borrar el apuesta:', error);
-      res.status(500).json({ error: 'Error interno del servidor' });
+router.delete('/borrarapuesta/:id', async (req, res) => {
+  try {
+    const apuestaId = req.params.id;
+
+    // Verificar si el apuesta existe antes de intentar borrarlo
+    const apuestaExistente = await apuestaModel.findById(apuestaId);
+    if (!apuestaExistente) {
+      return res.status(404).json({ error: 'apuesta no encontrado' });
     }
-  });
+
+    // Borrar el apuesta
+    //await apuestaModel.findByIdAndDelete(apuestaId);
+
+    res.json({ apuesta: 'apuesta borrado exitosamente' });
+  } catch (error) {
+    console.error('Error al borrar el apuesta:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 ///EMPATE
 router.put('/devolverApuestas/:sala/:ronda', async (req, res) => {
   try {
@@ -487,7 +487,7 @@ router.put('/devolverApuestas/:sala/:ronda', async (req, res) => {
 
     // Devolver las apuestas a los usuarios
     await Promise.all(Object.keys(apuestasPorUsuario).map(async (username) => {
-      const cantidadTotal =  eliminarCentavos(apuestasPorUsuario[username]); //Aplicar el redondeo para la cantidad total de la apuesta 
+      const cantidadTotal = eliminarCentavos(apuestasPorUsuario[username]); //Aplicar el redondeo para la cantidad total de la apuesta 
       const user = await userModel.findOne({ username });
       if (user) {
         user.saldo += cantidadTotal;
@@ -539,7 +539,7 @@ router.put('/devolverApuestasEnEspera/:sala/:ronda', async (req, res) => {
       acc[apuesta.username] += apuesta.cantidad;
       return acc;
     }, {});
-    console.log("apuestas por usuario:",apuestasPorUsuario);
+    console.log("apuestas por usuario:", apuestasPorUsuario);
     // Devolver las apuestas a los usuarios
     await Promise.all(Object.keys(apuestasPorUsuario).map(async (username) => {
       const cantidadTotal = eliminarCentavos(apuestasPorUsuario[username]); // Añadir redondeo
@@ -573,7 +573,7 @@ router.put('/restarSaldo', async (req, res) => {
     // CORRECCIÓN: Usar $inc con condición para atomicidad y validación de saldo
     // Esto previene condiciones de carrera donde dos procesos intentan restar simultáneamente
     const updatedUser = await userModel.findOneAndUpdate(
-      { 
+      {
         username,
         saldo: { $gte: cantidadRedondeada } // Solo actualizar si hay saldo suficiente
       },
@@ -600,7 +600,7 @@ router.put('/restarSaldo', async (req, res) => {
 router.put('/actualizarCantidadApuesta', async (req, res) => {
   try {
     const { id, cantidad } = req.body;
-     const cantidadRedondeada = eliminarCentavos(cantidad); // Redondear
+    const cantidadRedondeada = eliminarCentavos(cantidad); // Redondear
 
     // Validar que el monto sea un número válido
     if (isNaN(cantidadRedondeada) || cantidadRedondeada <= 0) {
@@ -628,7 +628,7 @@ router.put('/actualizarCantidadApuesta', async (req, res) => {
 router.put('/aumentarSaldo', async (req, res) => {
   try {
     const { username, cantidad } = req.body;
-     const cantidadRedondeada = eliminarCentavos(cantidad); // Redondear
+    const cantidadRedondeada = eliminarCentavos(cantidad); // Redondear
 
     // Validar que el monto sea un número válido
     if (isNaN(cantidad) || cantidad <= 0) {
@@ -656,7 +656,7 @@ router.put('/aumentarSaldo', async (req, res) => {
 router.get('/historialDetallado/:username', async (req, res) => {
   try {
     const username = req.params.username;
-    
+
     // Verificar si el usuario existe y obtener apuestas en paralelo
     const [usuario, apuestas] = await Promise.all([
       userModel.findOne({ username }).select('_id').lean(),
@@ -672,7 +672,7 @@ router.get('/historialDetallado/:username', async (req, res) => {
     const historial = apuestas.map(apuesta => {
       const esGanada = apuesta.estado === 'pagada';
       const esEmpate = apuesta.estado === 'devuelta';
-      
+
       return {
         ...apuesta,
         colorApostado: apuesta.rojo ? 'rojo' : 'verde',
@@ -697,11 +697,37 @@ router.get('/historialDetallado/:username', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener historial' });
   }
 });
-router.get('/historialPorRondas/:username',async (req, res) => {
+
+router.get('/historial/:fecha/:ronda', async (req, res) => {
+  try {
+    const { fecha, ronda } = req.params;
+    // Parse fecha (expecting DD-MM-YYYY)
+    const parts = fecha.split('-');
+    let startDate, endDate;
+    if (parts.length === 3) {
+      startDate = new Date(parts[2], parts[1] - 1, parts[0]);
+      endDate = new Date(parts[2], parts[1] - 1, parts[0]);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      return res.status(400).json({ error: "Fecha invalida" });
+    }
+
+    const apuestas = await apuestaModel.find({
+      fecha: { $gte: startDate, $lte: endDate },
+      ronda: Number(ronda)
+    });
+    res.json(apuestas);
+
+  } catch (error) {
+    console.error('Error al obtener historial por fecha:', error);
+    res.status(500).json({ error: 'Error al obtener historial' });
+  }
+});
+router.get('/historialPorRondas/:username', async (req, res) => {
 
   try {
     const username = req.params.username;
-    
+
     // Verificar si el usuario existe y obtener apuestas (excluyendo devoluciones)
     const [usuario, apuestas] = await Promise.all([
       userModel.findOne({ username }).select('username saldo').lean(),
@@ -717,11 +743,11 @@ router.get('/historialPorRondas/:username',async (req, res) => {
 
     // Agrupar por sala, ronda Y color
     const rondasColorMap = {};
-    
+
     apuestas.forEach(apuesta => {
       const color = apuesta.rojo ? 'ROJO' : 'VERDE';
       const key = `${apuesta.sala}-${apuesta.ronda}-${color}`;
-      
+
       if (!rondasColorMap[key]) {
         rondasColorMap[key] = {
           sala: apuesta.sala,
@@ -737,12 +763,12 @@ router.get('/historialPorRondas/:username',async (req, res) => {
           totalApuestas: 0
         };
       }
-      
+
       // Actualizar fecha si es más reciente
       if (new Date(apuesta.fecha) > new Date(rondasColorMap[key].fecha)) {
         rondasColorMap[key].fecha = apuesta.fecha;
       }
-      
+
       rondasColorMap[key].totalApostado += apuesta.cantidad;
       rondasColorMap[key].totalApuestas += 1;
 
@@ -778,10 +804,10 @@ router.get('/historialPorRondas/:username',async (req, res) => {
           cantidadFinal = neto;
           resultadoNeto = neto > 0 ? 'Gana' : 'Pierde';
         } else {
-           cantidadFinal = -rondaColor.totalApostado;
+          cantidadFinal = -rondaColor.totalApostado;
           resultadoNeto = 'Pierde';
         }
-        
+
         return {
           concepto: `P${rondaColor.ronda}`,
           fecha: rondaColor.fecha,
@@ -792,18 +818,18 @@ router.get('/historialPorRondas/:username',async (req, res) => {
           queda: resultadoNeto,
           cantidadFinal: cantidadFinal,
           estado: resultadoNeto === 'Tablas' ? 'devuelta' :
-                  rondaColor.hayGanadas && rondaColor.hayPerdidas ? 'mixto' : 
-                  rondaColor.hayGanadas ? 'pagada' : 'cazada'
+            rondaColor.hayGanadas && rondaColor.hayPerdidas ? 'mixto' :
+              rondaColor.hayGanadas ? 'pagada' : 'cazada'
         };
       })
       .sort((a, b) => {
         // Ordenar primero por fecha (más reciente primero), luego por ronda, luego por color
         const fechaCompare = new Date(b.fecha) - new Date(a.fecha);
         if (fechaCompare !== 0) return fechaCompare;
-        
+
         const rondaCompare = b.ronda - a.ronda;
         if (rondaCompare !== 0) return rondaCompare;
-        
+
         // Si es la misma ronda, poner ROJO primero, luego VERDE
         if (a.color === 'ROJO' && b.color === 'VERDE') return -1;
         if (a.color === 'VERDE' && b.color === 'ROJO') return 1;
@@ -822,10 +848,10 @@ router.get('/historialPorRondas/:username',async (req, res) => {
       }
       acc.balance = acc.totalGanado - acc.totalPerdido;
       return acc;
-    }, { 
+    }, {
       totalApostado: 0,
-      totalGanado: 0, 
-      totalPerdido: 0, 
+      totalGanado: 0,
+      totalPerdido: 0,
       balance: 0,
       registrosGanados: 0,
       registrosPerdidos: 0,
@@ -833,11 +859,11 @@ router.get('/historialPorRondas/:username',async (req, res) => {
       saldoActual: usuario.saldo
     });
 
-    res.json({ 
-      success: true, 
-      username: usuario.username, 
-      historial, 
-      resumen 
+    res.json({
+      success: true,
+      username: usuario.username,
+      historial,
+      resumen
     });
 
   } catch (error) {
@@ -847,15 +873,15 @@ router.get('/historialPorRondas/:username',async (req, res) => {
 });
 
 //End point para el resumen de las apuestas 
-router.get( '/resumen-stream/:sala',async (req, res) => {
+router.get('/resumen-stream/:sala', async (req, res) => {
   try {
     const sala = req.params.sala;
-    
+
     // --- INICIO DE LA CORRECCIÓN ---
     // La lógica original suma las apuestas de ambos lados (rojo y verde), duplicando el total.
     // Para corregirlo, contamos solo un lado de la apuesta (ej. 'rojo') para obtener el monto real cazado.
-    const apuestas = await apuestaModel.find({ 
-      sala, 
+    const apuestas = await apuestaModel.find({
+      sala,
       rojo: 'rojo', // Se añade esta línea para contar solo un lado de cada apuesta cazada.
       estado: { $in: ['cazada', 'pagada', 'perdida', 'devuelta'] }
     });
@@ -867,16 +893,16 @@ router.get( '/resumen-stream/:sala',async (req, res) => {
       if (!acc[ronda]) {
         acc[ronda] = 0;
       }
-            // Solo sumar si no fue devuelta, ya que una devolución no es un monto cazado.
+      // Solo sumar si no fue devuelta, ya que una devolución no es un monto cazado.
       if (apuesta.estado !== 'devuelta') {
         acc[ronda] += Math.floor(apuesta.cantidad);
       }
-      
+
       return acc;
     }, {});
 
     const totalStream = Object.values(totalPorRonda).reduce((sum, cantidad) => sum + cantidad, 0);
-    
+
     const resultado = {
       totalStream: totalStream,
       detalles: Object.keys(totalPorRonda).map(ronda => ({
@@ -908,7 +934,7 @@ router.get('/obtenerapuestasAgrupadasBySala/:sala', async (req, res) => {
 
     apuestas.forEach(apuesta => {
       const key = `${apuesta.username}_${apuesta.estado}_${apuesta.ronda}`;
-      
+
       if (!apuestasAgrupadas[key]) {
         apuestasAgrupadas[key] = {
           username: apuesta.username,
@@ -926,11 +952,11 @@ router.get('/obtenerapuestasAgrupadasBySala/:sala', async (req, res) => {
       // Sumar la cantidad total
       apuestasAgrupadas[key].cantidadTotal += apuesta.cantidad;
       apuestasAgrupadas[key].numeroApuestas += 1;
-      
+
       // Actualizar colores (mantener el último o combinar)
       if (apuesta.rojo) apuestasAgrupadas[key].roja = apuesta.rojo;
       if (apuesta.verde) apuestasAgrupadas[key].verde = apuesta.verde;
-      
+
       // Actualizar fecha si es más reciente
       if (new Date(apuesta.fecha) > new Date(apuestasAgrupadas[key].fechaUltima)) {
         apuestasAgrupadas[key].fechaUltima = apuesta.fecha;
