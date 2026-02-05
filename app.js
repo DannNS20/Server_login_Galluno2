@@ -9,11 +9,56 @@ initCron();
 const app = express();
 const http = require('http').createServer(app); // Cambia aquí
 const { Server } = require('socket.io');
-const io = new Server(http, { cors: { origin: '*' } }); // Permite CORS para desarrollo
+const io = new Server(http, {
+    cors: {
+        origin: [
+            "https://www.quinielasgallisticas.com",
+            "http://localhost:4200",
+            "http://localhost:8100",
+            "https://serverlogin.cheapserverhub.com"
+        ],
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+        credentials: true
+    }
+});
 
 //CONFIG
 const cors = require('cors');
-app.use(cors());
+
+// Configuración explícita de CORS
+const corsOptions = {
+    origin: function (origin, callback) {
+        const allowedOrigins = [
+            "https://www.quinielasgallisticas.com",
+            "http://localhost:4200",
+            "http://localhost:8100",
+            "https://serverlogin.cheapserverhub.com"
+        ];
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            return callback(null, true);
+        } else {
+            console.log('Bloqueado por CORS:', origin);
+            return callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Habilitar pre-flight para todas las rutas
+
+// Middleware para debug de headers
+app.use((req, res, next) => {
+    console.log(`[REQUEST] ${req.method} ${req.originalUrl}`);
+    console.log('Origin:', req.headers.origin);
+    next();
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: false }));
 
