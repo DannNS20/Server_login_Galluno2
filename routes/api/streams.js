@@ -51,9 +51,9 @@ router.post('/upload', upload.single('file'), (req, res) => {
 });
 
 router.post('/setClave/:id', upload.single('file'), async (req, res) => {
+    const streamId = req.params.id;
     try {
         if (req.file) {
-            console.log(req.file);
             helperImg(req.file.path, `resize-${req.file.filename}`);
             const path = `resize-${req.file.filename}`;
 
@@ -67,14 +67,39 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
             const Retiro = require('../../models/retiro.model');
 
             // --- CÁLCULO DE SNAPSHOT (INICIO DE STREAM) ---
-            // 1. Saldo Global (excluyendo BANCA)
-            const users = await User.find({});
-            const saldoGlobal = users.reduce((acc, u) => (u.username !== 'BANCA' && u.username !== 'blanco') ? acc + (u.saldo || 0) : acc, 0);
+            // --- CÁLCULO DE SNAPSHOT (INICIO DE STREAM) ---
 
-            // 2. Retiros Totales (Aprobados + Pendientes)
-            // NOTA: Se pueden ajustar los estados según requerimiento. Usualmente 'aprobado' es lo que salió.
-            const retiros = await Retiro.find({ estado: { $in: ['aprobado', 'pendiente'] } });
-            const retirosTotal = retiros.reduce((acc, r) => acc + (Number(r.cantidad) || 0), 0);
+            // 1. Saldo Global (excluyendo BANCA y blanco) - AGGREGATION
+            const userAggregation = await User.aggregate([
+                {
+                    $match: {
+                        username: { $nin: ['BANCA', 'blanco'] }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalSaldo: { $sum: "$saldo" }
+                    }
+                }
+            ]);
+            const saldoGlobal = userAggregation.length > 0 ? userAggregation[0].totalSaldo : 0;
+
+            // 2. Retiros Totales (Aprobados + Pendientes) - AGGREGATION
+            const retiroAggregation = await Retiro.aggregate([
+                {
+                    $match: {
+                        estado: { $in: ['aprobado', 'pendiente'] }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalCantidad: { $sum: "$cantidad" }
+                    }
+                }
+            ]);
+            const retirosTotal = retiroAggregation.length > 0 ? retiroAggregation[0].totalCantidad : 0;
 
             const total = saldoGlobal + retirosTotal;
             const snapshotData = {
@@ -90,6 +115,7 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
             const clave = req.body.clave;
             const image = pathFinal;
             const esVIP = esVIPvalue;
+
             // Usamos findOneAndUpdate con upsert: true para crear un nuevo documento si no existe
             const registroActualizado = await Stream.findOneAndUpdate(
                 { id },
@@ -106,6 +132,7 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
 
             return res.json({ data: "Stream Configurado!", snapshot: snapshotData });
         } else {
+            // No se cargó ningún archivo
             // No se cargó ningún archivo
             return res.json({ data: "No se envio ningguna imagen" });
         }
