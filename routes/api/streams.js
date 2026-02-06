@@ -25,7 +25,13 @@ const helperImgOverlay = (filePath, fileName, x = 1280, y = 720) => {
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '../../uploadsStreams'))
+        // FORZAMOS a que use la ruta que ya tienes configurada en Dokploy
+        // Pero verificamos si estamos en producción para no romper local
+        const uploadPath = process.env.NODE_ENV === 'production'
+            ? '/app/uploadsStreams'
+            : path.join(__dirname, '../../uploadsStreams');
+
+        cb(null, uploadPath)
     },
     filename: (req, file, cb) => {
         const ext = file.originalname.split('.').pop()
@@ -52,91 +58,80 @@ router.post('/upload', upload.single('file'), (req, res) => {
 
 router.post('/setClave/:id', upload.single('file'), async (req, res) => {
     const streamId = req.params.id;
+    console.log(`[START] Configurando Stream ${streamId}`);
+
     try {
+        let pathFinal = null;
+
+        // --- PASO 1: INTENTAR PROCESAR IMAGEN (SI EXISTE) ---
         if (req.file) {
-            helperImg(req.file.path, `resize-${req.file.filename}`);
-            const path = `resize-${req.file.filename}`;
+            try {
+                // Intentamos procesar la imagen
+                // Usamos await para que si falla (error de carpetas), salte al catch
+                await helperImg(req.file.path, `resize-${req.file.filename}`);
 
-            // Utilizamos split para obtener el nombre sin extensión y la extensión
-            const [nombreSinExtension, extension] = path.split('.');
-            const esVIPvalue = req.body.esVIP === "true";
-            // Construimos el nuevo nombre del archivo
-            const pathFinal = `${nombreSinExtension}.png`;
-
-            const User = require('../../models/user.model');
-            const Retiro = require('../../models/retiro.model');
-
-            // --- CÁLCULO DE SNAPSHOT (INICIO DE STREAM) ---
-            // --- CÁLCULO DE SNAPSHOT (INICIO DE STREAM) ---
-
-            // 1. Saldo Global (excluyendo BANCA y blanco) - AGGREGATION
-            const userAggregation = await User.aggregate([
-                {
-                    $match: {
-                        username: { $nin: ['BANCA', 'blanco'] }
-                    }
-                },
-                {
-                    $group: {
-                        _id: null,
-                        totalSaldo: { $sum: "$saldo" }
-                    }
-                }
-            ]);
-            const saldoGlobal = userAggregation.length > 0 ? userAggregation[0].totalSaldo : 0;
-
-            // 2. Retiros Totales (Aprobados + Pendientes) - AGGREGATION
-            const retiroAggregation = await Retiro.aggregate([
-                {
-                    $match: {
-                        estado: { $in: ['aprobado', 'pendiente'] }
-                    }
-                },
-                {
-                    $group: {
-                        _id: null,
-                        totalCantidad: { $sum: "$cantidad" }
-                    }
-                }
-            ]);
-            const retirosTotal = retiroAggregation.length > 0 ? retiroAggregation[0].totalCantidad : 0;
-
-            const total = saldoGlobal + retirosTotal;
-            const snapshotData = {
-                saldoGlobal,
-                retiros: retirosTotal,
-                total,
-                startedAt: new Date()
-            };
-            // ----------------------------------------------
-
-            const id = req.params.id;
-            const titulo = req.body.tituloStream;
-            const clave = req.body.clave;
-            const image = pathFinal;
-            const esVIP = esVIPvalue;
-
-            // Usamos findOneAndUpdate con upsert: true para crear un nuevo documento si no existe
-            const registroActualizado = await Stream.findOneAndUpdate(
-                { id },
-                {
-                    titulo,
-                    clave,
-                    image,
-                    esVIP,
-                    // Guardamos el snapshot CADA VEZ que se inicia/configura el stream
-                    snapshot: snapshotData
-                },
-                { new: true, upsert: true }
-            );
-
-            return res.json({ data: "Stream Configurado!", snapshot: snapshotData });
-        } else {
-            // No se cargó ningún archivo
-            // No se cargó ningún archivo
-            return res.json({ data: "No se envio ningguna imagen" });
+                const path = `resize-${req.file.filename}`;
+                const [nombreSinExtension, extension] = path.split('.');
+                pathFinal = `${nombreSinExtension}.png`;
+                console.log(`[IMG] Imagen procesada: ${pathFinal}`);
+            } catch (imgError) {
+                // Si falla la imagen (por lo de Docker), solo avisamos y seguimos sin ella
+                console.error(`[WARN] Falló la imagen, pero iniciaremos el stream igual.`);
+                pathFinal = null;
+            }
         }
+
+        // --- PASO 2: LÓGICA DE NEGOCIO (ESTO SE EJECUTA SIEMPRE) ---
+        // Al estar FUERA del 'if (req.file)', el stream inicia aunque no haya foto.
+
+        const User = require('../../models/user.model');
+        const Retiro = require('../../models/retiro.model');
+
+        // A. Calcular Snapshot (Dinero)
+        const userAggregation = await User.aggregate([
+            { $match: { username: { $nin: ['BANCA', 'blanco'] } } },
+            { $group: { _id: null, totalSaldo: { $sum: "$saldo" } } }
+        ]);
+        const saldoGlobal = userAggregation.length > 0 ? userAggregation[0].totalSaldo : 0;
+
+        const retiroAggregation = await Retiro.aggregate([
+            { $match: { estado: { $in: ['aprobado', 'pendiente'] } } },
+            { $group: { _id: null, totalCantidad: { $sum: "$cantidad" } } }
+        ]);
+        const retirosTotal = retiroAggregation.length > 0 ? retiroAggregation[0].totalCantidad : 0;
+
+        const snapshotData = {
+            saldoGlobal,
+            retiros: retirosTotal,
+            total: saldoGlobal + retirosTotal,
+            startedAt: new Date()
+        };
+
+        // B. Preparar datos para guardar
+        const updateData = {
+            titulo: req.body.tituloStream,
+            clave: req.body.clave,
+            esVIP: req.body.esVIP === "true",
+            snapshot: snapshotData
+        };
+
+        // Solo si hubo imagen nueva y válida, la actualizamos. Si no, dejamos la que estaba.
+        if (pathFinal) {
+            updateData.image = pathFinal;
+        }
+
+        // C. Guardar en Base de Datos
+        await Stream.findOneAndUpdate(
+            { id: streamId },
+            updateData,
+            { new: true, upsert: true }
+        );
+
+        console.log(`[SUCCESS] Stream configurado (Con o Sin imagen).`);
+        return res.json({ data: "Stream Configurado!", snapshot: snapshotData });
+
     } catch (error) {
+        console.error(`[ERROR]`, error);
         return res.status(500).json({ error: error.message });
     }
 });
@@ -173,13 +168,19 @@ router.get('/getImagen/:id', async (req, res) => {
             return res.status(404).json({ error: 'Stream no encontrado' });
         }
 
+        // Verificamos si el stream tiene una imagen asignada
+        if (!stream.image) {
+            return res.status(404).json({ error: 'Stream no tiene imagen asignada' });
+        }
+
         // Construye la ruta del archivo de imagen
         const imagePath = path.join(__dirname, '../../imagenesStreams', stream.image);
 
         // Envía los datos del stream como respuesta
         res.sendFile(imagePath, {}, (err) => {
             if (err) {
-                return res.status(500).json({ error: 'Error al enviar el archivo' });
+                // Si el archivo físico no existe aunque la BD diga que sí
+                return res.status(404).json({ error: 'Archivo de imagen no encontrado' });
             }
         });
     } catch (error) {
