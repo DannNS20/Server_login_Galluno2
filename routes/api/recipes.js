@@ -151,32 +151,53 @@ router.get('/get-image/:id', async (req, res) => {
     try {
         const id = req.params.id;
 
+        // Validar formato de ID
+        if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+            console.error(`[ERROR] get-image: ID inválido: ${id}`);
+            return res.status(400).json({ error: 'ID de recibo inválido' });
+        }
+
         // Buscar al usuario en la base de datos
         const user = await Recipe.findOne({ _id: id });
 
         if (!user) {
-            return res.status(404).json({ error: 'Usuario no encontrado' });
+            console.error(`[ERROR] get-image: Recibo no encontrado en BD. ID: ${id}`);
+            return res.status(404).json({ error: 'Recibo no encontrado' });
         }
 
         // Obtener el nombre de la imagen del usuario
         const imageName = user.image;
 
         if (!imageName) {
+            console.error(`[ERROR] get-image: Campo 'image' es null/vacío para ID: ${id}`);
             return res.status(404).json({ error: 'Imagen no encontrada para este usuario' });
         }
 
         // Construir la ruta completa al archivo de imagen
         const imagePath = path.join(__dirname, '../../', 'imagenesRecipes', imageName);
-        console.log(imagePath);
+        console.log(`[DEBUG] get-image: Solicitando imagen para usuario/recibo ID: ${id}`);
+        console.log(`[DEBUG] get-image: Nombre de imagen en BD: ${imageName}`);
+        console.log(`[DEBUG] get-image: Ruta completa resuelta: ${imagePath}`);
+
+        if (!fs.existsSync(imagePath)) {
+            console.error(`[ERROR] get-image: El archivo NO EXISTE en la ruta: ${imagePath}`);
+            return res.status(404).json({ error: `Archivo físico no encontrado: ${imageName}` });
+        } else {
+            console.log(`[DEBUG] get-image: El archivo SÍ EXISTE.`);
+        }
 
         // Enviar la imagen como respuesta
         res.sendFile(imagePath, {}, (err) => {
             if (err) {
-                return res.status(500).json({ error: 'Error al enviar el archivo' });
+                console.error(`[ERROR] get-image: Falló res.sendFile:`, err);
+                if (!res.headersSent) {
+                    return res.status(500).json({ error: 'Error al enviar el archivo: ' + err.message });
+                }
             }
         });
     } catch (error) {
-        return res.status(500).json({ error: error.message });
+        console.error(`[CRITICAL ERROR] get-image:`, error);
+        return res.status(500).json({ error: 'Error interno: ' + error.message });
     }
 });
 
