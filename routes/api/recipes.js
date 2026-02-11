@@ -34,10 +34,18 @@ cron.schedule('0 7 */2 * *', async () => {
 const helperImg = async (filePath, fileName, size = 100) => {
     console.log(`[DEBUG] helperImg: Iniciando procesamiento de imagen: ${fileName}`);
     try {
+        const outputDir = path.join(__dirname, '../../imagenesRecipes');
+        if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+        }
+
+        const outputPath = path.join(outputDir, fileName);
+
         await sharp(filePath)
             //.resize(size,size)
-            .toFile(`./imagenesRecipes/${fileName}`);
-        console.log(`[DEBUG] helperImg: Imagen procesada guardada en ./imagenesRecipes/${fileName}`);
+            .toFile(outputPath);
+
+        console.log(`[DEBUG] helperImg: Imagen procesada guardada en ABIERTO: ${outputPath}`);
     } catch (error) {
         console.error(`[DEBUG] helperImg: Error procesando imagen ${fileName}:`, error);
         throw error;
@@ -161,8 +169,7 @@ router.get('/get-image/:id', async (req, res) => {
         const user = await Recipe.findOne({ _id: id });
 
         if (!user) {
-            console.error(`[ERROR] get-image: Recibo no encontrado en BD. ID: ${id}`);
-            return res.status(404).json({ error: 'Recibo no encontrado' });
+            return res.status(404).json({ error: 'Usuario no encontrado' });
         }
 
         // Obtener el nombre de la imagen del usuario
