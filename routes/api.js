@@ -5,6 +5,7 @@ router.use('/mensajes', require('./api/mensajes'));
 router.use('/streams', require('./api/streams'));
 router.use('/videos', require('./api/videos'));
 router.use('/recibos', require('./api/recipes'));
+router.use('/recipes', require('./api/recipes'));
 router.use('/scripts', require('./api/scripts'));
 router.use('/apuestas', require('./api/apuestas'));
 router.use('/retiros', require('./api/retiros'));
