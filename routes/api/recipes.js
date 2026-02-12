@@ -236,28 +236,28 @@ router.get('/get-image/:id', async (req, res) => {
 
         // Construir la ruta completa al archivo de imagen
         const imagePath = path.join(__dirname, '../../', 'imagenesRecipes', imageName);
-        console.log(`[DEBUG] get-image: Solicitando imagen para usuario/recibo ID: ${id}`);
-        console.log(`[DEBUG] get-image: Nombre de imagen en BD: ${imageName}`);
-        console.log(`[DEBUG] get-image: Ruta completa resuelta: ${imagePath}`);
+        console.log(`[DEBUG][PID:${process.pid}] get-image: Solicitando imagen para usuario/recibo ID: ${id}`);
+        console.log(`[DEBUG][PID:${process.pid}] get-image: Nombre de imagen en BD: ${imageName}`);
+        console.log(`[DEBUG][PID:${process.pid}] get-image: Ruta completa resuelta: ${imagePath}`);
 
         if (!fs.existsSync(imagePath)) {
-            console.error(`[ERROR] get-image: El archivo NO EXISTE en la ruta: ${imagePath}`);
-            return res.status(404).json({ error: `Archivo físico no encontrado: ${imageName}` });
+            console.error(`[ERROR][PID:${process.pid}] get-image: El archivo NO EXISTE en la ruta: ${imagePath}`);
+            return res.status(404).json({ error: `Archivo físico no encontrado: ${imageName} en PID:${process.pid}` });
         } else {
-            console.log(`[DEBUG] get-image: El archivo SÍ EXISTE.`);
+            console.log(`[DEBUG][PID:${process.pid}] get-image: El archivo SÍ EXISTE.`);
         }
 
         // Enviar la imagen como respuesta
         res.sendFile(imagePath, {}, (err) => {
             if (err) {
-                console.error(`[ERROR] get-image: Falló res.sendFile:`, err);
+                console.error(`[ERROR][PID:${process.pid}] get-image: Falló res.sendFile:`, err);
                 if (!res.headersSent) {
                     return res.status(500).json({ error: 'Error al enviar el archivo: ' + err.message });
                 }
             }
         });
     } catch (error) {
-        console.error(`[CRITICAL ERROR] get-image:`, error);
+        console.error(`[CRITICAL ERROR][PID:${process.pid}] get-image:`, error);
         return res.status(500).json({ error: 'Error interno: ' + error.message });
     }
 });
