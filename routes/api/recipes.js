@@ -54,7 +54,11 @@ const helperImg = async (filePath, fileName, size = 100) => {
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, './uploadsRecipes')
+        const uploadDir = path.join(__dirname, '../../uploadsRecipes');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
     },
     filename: (req, file, cb) => {
         const ext = file.originalname.split('.').pop()
@@ -147,12 +151,32 @@ router.post('/register', upload.single('file'), async (req, res) => {
 
 router.get('/get-all-recipes', async (req, res) => {
     try {
-        const Recipes = await Recipe.find({}); // Exclude password from the response
+        const Recipes = await Recipe.find({}).sort({ fecha: -1 }); // Sort by newest first
         res.json(Recipes);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 
+});
+
+router.get('/debug-files', (req, res) => {
+    const dirPath = path.join(__dirname, '../../imagenesRecipes');
+    fs.readdir(dirPath, (err, files) => {
+        if (err) {
+            return res.status(500).json({ error: err.message, path: dirPath });
+        }
+        // Devolver archivos y sus tamaños/fechas
+        const fileDetails = files.map(file => {
+            const stats = fs.statSync(path.join(dirPath, file));
+            return {
+                name: file,
+                size: stats.size,
+                created: stats.birthtime,
+                modified: stats.mtime
+            };
+        });
+        res.json({ path: dirPath, files: fileDetails });
+    });
 });
 
 router.get('/get-image/:id', async (req, res) => {
