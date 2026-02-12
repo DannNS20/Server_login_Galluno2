@@ -161,21 +161,51 @@ router.get('/get-all-recipes', async (req, res) => {
 
 router.get('/debug-files', (req, res) => {
     const dirPath = path.join(__dirname, '../../imagenesRecipes');
+    const parentDir = path.join(__dirname, '../../');
+
+    console.log(`[DEBUG-ROUTING] CWD: ${process.cwd()}`);
+    console.log(`[DEBUG-ROUTING] dirPath: ${dirPath}`);
+
+    const response = {
+        cwd: process.cwd(),
+        dirPath: dirPath,
+        parentDir: parentDir,
+        serverUser: process.getuid ? process.getuid() : 'win',
+        serverGroup: process.getgid ? process.getgid() : 'win',
+        parentDirList: [],
+        files: []
+    };
+
+    // Listar directorio padre para ver si existe la carpeta de imagenes
+    try {
+        response.parentDirList = fs.readdirSync(parentDir);
+    } catch (err) {
+        response.parentDirList = `Error listing parent: ${err.message}`;
+    }
+
     fs.readdir(dirPath, (err, files) => {
         if (err) {
-            return res.status(500).json({ error: err.message, path: dirPath });
+            response.error = err.message;
+            return res.status(500).json(response);
         }
         // Devolver archivos y sus tamaños/fechas
-        const fileDetails = files.map(file => {
-            const stats = fs.statSync(path.join(dirPath, file));
-            return {
-                name: file,
-                size: stats.size,
-                created: stats.birthtime,
-                modified: stats.mtime
-            };
+        response.files = files.map(file => {
+            try {
+                const stats = fs.statSync(path.join(dirPath, file));
+                return {
+                    name: file,
+                    size: stats.size,
+                    created: stats.birthtime,
+                    modified: stats.mtime,
+                    uid: stats.uid, // User ID del dueño
+                    gid: stats.gid, // Group ID del dueño
+                    mode: (stats.mode & 0o777).toString(8) // Permisos en octal (ej: 644)
+                };
+            } catch (err) {
+                return { name: file, error: "No se pudo leer stats" };
+            }
         });
-        res.json({ path: dirPath, files: fileDetails });
+        res.json(response);
     });
 });
 
