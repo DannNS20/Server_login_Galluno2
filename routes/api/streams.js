@@ -94,6 +94,13 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
         ]);
         const saldoGlobal = userAggregation.length > 0 ? userAggregation[0].totalSaldo : 0;
 
+        // NEW: Capture individual users for detailed table
+        const usuariosRaw = await User.find({ username: { $nin: ['BANCA', 'blanco'] } }, 'username saldo');
+        const usuariosSnapshot = usuariosRaw.map(u => ({
+            username: u.username,
+            saldoInicial: u.saldo || 0
+        }));
+
         const retiroAggregation = await Retiro.aggregate([
             { $match: { estado: { $in: ['aprobado', 'pendiente'] } } },
             { $group: { _id: null, totalCantidad: { $sum: "$cantidad" } } }
@@ -104,7 +111,8 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
             saldoGlobal,
             retiros: retirosTotal,
             total: saldoGlobal + retirosTotal,
-            startedAt: new Date()
+            startedAt: new Date(),
+            usuarios: usuariosSnapshot
         };
 
         // B. Preparar datos para guardar
@@ -467,6 +475,14 @@ router.get('/liveData/:id', async (req, res) => {
         const users = await User.find({});
         const saldoGlobal = users.reduce((acc, u) => (u.username !== 'BANCA' && u.username !== 'blanco') ? acc + (u.saldo || 0) : acc, 0);
 
+        // NEW: Capture individual users current state for live tracking
+        const usuariosLive = users
+            .filter(u => u.username !== 'BANCA' && u.username !== 'blanco')
+            .map(u => ({
+                username: u.username,
+                saldoActual: u.saldo || 0
+            }));
+
         // 2. Retiros (fechaSolicitud >= startedAt)
         const retiros = await Retiro.find({
             fechaSolicitud: { $gte: startedAt }
@@ -531,7 +547,8 @@ router.get('/liveData/:id', async (req, res) => {
                 saldoManual: saldoManualTotal,
                 restaManual: restaManualTotal,
                 cazado: cazadoTotal,
-                startedAt: startedAt
+                startedAt: startedAt,
+                usuarios: usuariosLive
             }
         });
 
@@ -560,6 +577,14 @@ router.post('/finalize/:id', async (req, res) => {
         // 1. Saldo Global
         const users = await User.find({});
         const saldoGlobal = users.reduce((acc, u) => (u.username !== 'BANCA' && u.username !== 'blanco') ? acc + (u.saldo || 0) : acc, 0);
+
+        // NEW: Capture individual users final state
+        const usuariosFinalSnapshot = users
+            .filter(u => u.username !== 'BANCA' && u.username !== 'blanco')
+            .map(u => ({
+                username: u.username,
+                saldoFinal: u.saldo || 0
+            }));
 
         // 2. Retiros
         const retiros = await Retiro.find({ fechaSolicitud: { $gte: startedAt } });
@@ -596,7 +621,8 @@ router.post('/finalize/:id', async (req, res) => {
             restaManual: restaManualTotal,
             cazado: cazadoTotal,
             total,
-            endedAt: new Date()
+            endedAt: new Date(),
+            usuarios: usuariosFinalSnapshot
         };
 
         // Guardar Final Snapshot

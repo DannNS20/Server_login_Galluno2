@@ -16,7 +16,11 @@ const streamSchema = new Schema({
         saldoGlobal: Number,
         retiros: Number,
         total: Number,
-        startedAt: Date
+        startedAt: Date,
+        usuarios: [{
+            username: String,
+            saldoInicial: Number
+        }]
     },
     finalSnapshot: {
         saldoGlobal: Number,
@@ -26,7 +30,12 @@ const streamSchema = new Schema({
         restaManual: Number,
         cazado: Number,
         total: Number,
-        endedAt: Date
+        endedAt: Date,
+        usuarios: [{
+            username: String,
+            saldoInicial: Number,
+            saldoFinal: Number // Additional metric if needed
+        }]
     },
 }, {
     timestamps: true // Mantiene createdAt y updatedAt
