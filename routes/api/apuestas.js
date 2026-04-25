@@ -1187,5 +1187,154 @@ router.get('/auditoria/historial-usuario-ronda/:sala/:ronda', async (req, res) =
     res.status(500).json({ error: 'Error al obtener historial de ronda' });
   }
 });
+/**
+ * GET /api/apuestas/resumen-usuarios-stream/:sala
+ *
+ * Calcula para cada usuario que participó en el stream:
+ *   - saldoInicio:   snapshot del saldo justo ANTES de su primera apuesta en la sala
+ *                    (saldo_antes del primer registro tipo 'restar_saldo' en saldos)
+ *   - gana:          suma de apuestas con estado 'pagada' × 0.9 (comisión 10%)
+ *   - pierde:        suma de apuestas con estado 'perdida'
+ *   - depositos:     suma de saldos con tipo 'recarga' o 'deposito' en la sala
+ *   - retiros:       suma de saldos con tipo 'retiro' o 'retiro_autorizado' en la sala
+ *   - aumManual:     suma de saldos con tipo 'aumento_manual' o 'add_manual' en la sala
+ *   - restaMan:      suma de saldos con tipo 'resta_manual' o 'subtract_manual' en la sala
+ *   - tiene:         saldo actual del usuario (user.saldo)
+ *   - deberiaTener:  saldoInicio + gana - pierde + depositos - retiros + aumManual - restaMan
+ *   - tieneDeMas:    tiene - deberiaTener
+ *   - aposto:        suma total apostada en la sala (todas las apuestas sin importar estado)
+ *   - vaJugando:     suma de apuestas con estado 'cazada' (en juego ahora)
+ *   - enEspera:      suma de apuestas con estado 'en_espera' (sin cazar aún)
+ *   - devuelto:      suma de apuestas con estado 'devuelta'
+ */
+router.get('/resumen-usuarios-stream/:sala', async (req, res) => {
+  try {
+    const sala = req.params.sala;
+ 
+    // ── 1. Todas las apuestas del stream ──────────────────────────────────────
+    const apuestas = await apuestaModel.find({ sala }).lean();
+    if (apuestas.length === 0) {
+      return res.json({ success: true, resumen: [] });
+    }
+ 
+    // ── 2. Todos los movimientos de saldo del stream ──────────────────────────
+    const movimientos = await saldos.find({ sala }).lean();
+ 
+    // ── 3. Usernames únicos que apostaron ─────────────────────────────────────
+    const usernames = [...new Set(apuestas.map(a => a.username))];
+ 
+    // ── 4. Saldos actuales de los usuarios ────────────────────────────────────
+    const usuarios = await userModel.find(
+      { username: { $in: usernames } },
+      { username: 1, saldo: 1, _id: 0 }
+    ).lean();
+    const saldoActualMap = {};
+    usuarios.forEach(u => { saldoActualMap[u.username] = u.saldo ?? 0; });
+ 
+    // ── 5. Construir resumen por usuario ──────────────────────────────────────
+    const resumenMap = {};
+ 
+    usernames.forEach(username => {
+      // Apuestas del usuario en este stream
+      const apuestasUser = apuestas.filter(a => a.username === username);
+ 
+      // Movimientos de saldo del usuario en este stream
+      const movsUser = movimientos.filter(m => m.usuario === username);
+ 
+      // SALDO INICIO: saldo_antes del primer 'restar_saldo' del stream
+      // (justo antes de apostar por primera vez)
+      const primeraApuesta = movsUser
+        .filter(m => m.tipo === 'restar_saldo' && m.saldo_antes != null)
+        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))[0];
+      const saldoInicio = primeraApuesta ? (primeraApuesta.saldo_antes ?? 0) : 0;
+ 
+      // GANA: apuestas pagadas × 0.9
+      const gana = apuestasUser
+        .filter(a => a.estado === 'pagada')
+        .reduce((s, a) => s + Math.floor(a.cantidad * 0.9), 0);
+ 
+      // PIERDE: apuestas perdidas
+      const pierde = apuestasUser
+        .filter(a => a.estado === 'perdida')
+        .reduce((s, a) => s + a.cantidad, 0);
+ 
+      // DEPÓSITOS: recargas aceptadas en el stream
+      // Tipos que usa tu backend para depósitos/recargas:
+      const depositos = movsUser
+        .filter(m => ['recarga', 'deposito', 'recarga_aceptada', 'aumento_saldo'].includes(m.tipo))
+        .reduce((s, m) => s + (m.saldo ?? 0), 0);
+ 
+      // RETIROS: retiros autorizados en el stream
+      const retiros = movsUser
+        .filter(m => ['retiro', 'retiro_autorizado', 'retiro_procesado'].includes(m.tipo))
+        .reduce((s, m) => s + (m.saldo ?? 0), 0);
+ 
+      // AUMENTO MANUAL: lo que el admin agregó manualmente
+      const aumManual = movsUser
+        .filter(m => ['aumento_manual', 'add_manual', 'ajuste_positivo'].includes(m.tipo))
+        .reduce((s, m) => s + (m.saldo ?? 0), 0);
+ 
+      // RESTA MANUAL: lo que el admin restó manualmente
+      const restaMan = movsUser
+        .filter(m => ['resta_manual', 'subtract_manual', 'ajuste_negativo'].includes(m.tipo))
+        .reduce((s, m) => s + (m.saldo ?? 0), 0);
+ 
+      // TIENE: saldo actual en BD
+      const tiene = saldoActualMap[username] ?? 0;
+ 
+      // DEBERÍA TENER: proyección basada en todos los movimientos
+      const deberiaTener = Math.floor(
+        saldoInicio + gana - pierde + depositos - retiros + aumManual - restaMan
+      );
+ 
+      // TIENE DE MÁS: diferencia (negativo = le falta, positivo = le sobra)
+      const tieneDeMas = tiene - deberiaTener;
+ 
+      // APOSTÓ: total apostado en el stream (todas las apuestas)
+      const aposto = apuestasUser.reduce((s, a) => s + a.cantidad, 0);
+ 
+      // VA JUGANDO: lo que está cazado actualmente (en juego)
+      const vaJugando = apuestasUser
+        .filter(a => a.estado === 'cazada')
+        .reduce((s, a) => s + a.cantidad, 0);
+ 
+      // EN ESPERA: lo que no ha sido cazado aún
+      const enEspera = apuestasUser
+        .filter(a => a.estado === 'en_espera')
+        .reduce((s, a) => s + a.cantidad, 0);
+ 
+      // DEVUELTO: lo que se le devolvió (empate o apuesta sin cazar al cerrar)
+      const devuelto = apuestasUser
+        .filter(a => a.estado === 'devuelta')
+        .reduce((s, a) => s + a.cantidad, 0);
+ 
+      resumenMap[username] = {
+        usuario: username,
+        saldoInicio,
+        gana,
+        pierde,
+        depositos,
+        retiros,
+        aumManual,
+        restaMan,
+        tiene,
+        deberiaTener,
+        tieneDeMas,
+        aposto,
+        vaJugando,
+        enEspera,
+        devuelto
+      };
+    });
+ 
+    const resumen = Object.values(resumenMap).sort((a, b) => b.aposto - a.aposto);
+ 
+    res.json({ success: true, resumen });
+ 
+  } catch (error) {
+    console.error('[resumen-usuarios-stream] Error:', error);
+    res.status(500).json({ error: 'Error al calcular resumen de usuarios' });
+  }
+});
 
 module.exports = router;
