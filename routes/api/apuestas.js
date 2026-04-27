@@ -161,16 +161,7 @@ router.put('/repartirGanancias/:sala/:ronda/:ganador', async (req, res) => {
           { new: true }
         );
 
-        // NUEVO: Registrar movimiento en saldos (igual que Plumass)
-        await new saldos({
-          saldo: montoGanado,
-          fecha: new Date().toISOString(),
-          usuario: username,
-          tipo: "apuesta_ganada",
-          concepto: `Aumento automático al ganar la apuesta`,
-          ronda: ronda,
-          sala: sala
-        }).save();
+        // ELIMINADO: registro en saldos tipo apuesta_ganada
 
         await userModel.findOneAndUpdate(
           { username: 'BANCA' },
@@ -297,18 +288,7 @@ router.post('/crearApuesta', async (req, res) => {
       console.error(`[ALERTA SALDO] ${username} apostó $${cantidadRedondeada} teniendo $${saldoAntes}`);
     }
 
-    // PASO 3: Registrar movimiento en saldos con saldo_antes y saldo_despues
-    await new saldos({
-      saldo: cantidadRedondeada,
-      fecha: new Date().toISOString(),
-      usuario: username,
-      tipo: 'restar_saldo',
-      concepto: `Apuesta P${ronda}`,
-      sala: room,
-      ronda: Number(ronda),
-      saldo_antes: saldoAntes,
-      saldo_despues: saldoDespues
-    }).save();
+    // PASO 3: ELIMINADO registro en saldos tipo restar_saldo / Apuesta P{ronda}
 
     return res.json({
       success: true,
@@ -538,16 +518,7 @@ router.put('/devolverApuestas/:sala/:ronda', async (req, res) => {
           { username },
           { $inc: { saldo: cantidadTotal } }
         );
-        // NUEVO: registrar en saldos
-        await new saldos({
-          saldo: cantidadTotal,
-          fecha: new Date().toISOString(),
-          usuario: username,
-          tipo: "saldo_devuelto",
-          concepto: `Aumento automatico al devolver la apuesta por empate`,
-          sala: sala,
-          ronda: ronda
-        }).save();
+        // ELIMINADO: registro en saldos tipo saldo_devuelto por empate
       }
     }));
 
@@ -601,16 +572,7 @@ router.put('/devolverApuestasEnEspera/:sala/:ronda', async (req, res) => {
           { username },
           { $inc: { saldo: cantidadTotal } }
         );
-        // NUEVO: registrar en saldos
-        await new saldos({
-          saldo: cantidadTotal,
-          fecha: new Date().toISOString(),
-          usuario: username,
-          tipo: "saldo_devuelto",
-          concepto: `Aumento automatico al devolver la apuesta no cazada`,
-          sala: sala,
-          ronda: ronda
-        }).save();
+        // ELIMINADO: registro en saldos tipo saldo_devuelto por apuesta no cazada
       }
     }));
 
