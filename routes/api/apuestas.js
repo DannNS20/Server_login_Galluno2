@@ -287,6 +287,17 @@ router.post('/crearApuesta', async (req, res) => {
     if (saldoAntes < cantidadRedondeada) {
       console.error(`[ALERTA SALDO] ${username} apostó $${cantidadRedondeada} teniendo $${saldoAntes}`);
     }
+      await new saldos({
+      saldo: cantidadRedondeada,
+      fecha: new Date().toISOString(),
+      usuario: username,
+      tipo: 'restar_saldo',
+      concepto: `Apuesta P${ronda}`,
+      sala: room,
+      ronda: Number(ronda),
+      saldo_antes: saldoAntes,
+      saldo_despues: saldoDespues
+    }).save();
 
     // PASO 3: ELIMINADO registro en saldos tipo restar_saldo / Apuesta P{ronda}
 
