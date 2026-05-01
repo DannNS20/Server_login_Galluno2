@@ -238,9 +238,10 @@ router.put('/edit-user/:username', async (req, res) => {
         const updatedData = req.body; // Los datos que deseas actualizar
 
         // Verificar si la nueva contraseña se proporciona y encriptarla si es así
-        if (updatedData.password) {
-            updatedData.password = bcrypt.hashSync(updatedData.newPassword, 12);
-        }
+        if (updatedData.newPassword) {
+    updatedData.password = bcrypt.hashSync(updatedData.newPassword, 12);
+    delete updatedData.newPassword; // Eliminar el campo no deseado
+}
 
         // Actualiza el usuario en la base de datos
         const updatedUser = await User.findByIdAndUpdate(
@@ -589,6 +590,40 @@ router.get('/get-users-by-stream/:codigoStream', async (req, res) => {
         const users = await User.find({ username: { $in: usernames } }, { password: 0 });
 
         res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// PUT /api/users/admin-change-password
+// Permite al admin cambiar la contraseña de cualquier usuario sin la actual
+router.put('/admin-change-password', async (req, res) => {
+    try {
+        const { userId, newPassword } = req.body;
+
+        // Validar que se proporcionen los campos necesarios
+        if (!userId || !newPassword) {
+            return res.status(400).json({ error: 'userId y newPassword son requeridos' });
+        }
+
+        // Validar longitud mínima
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+        }
+
+        // Buscar al usuario
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        // Encriptar la nueva contraseña
+        const hashedPassword = bcrypt.hashSync(newPassword, 12);
+
+        // Actualizar la contraseña
+        user.password = hashedPassword;
+        await user.save();
+
+        res.json({ success: true, message: 'Contraseña actualizada exitosamente' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
