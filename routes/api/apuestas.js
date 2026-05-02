@@ -4,7 +4,7 @@ const Screenshot = require('../../models/screenshot.model');
 const userModel = require('../../models/user.model');
 const saldos = require('../../models/saldos.model');
 const auditoriaCorteModel = require('../../models/auditoriaCorte.model');
-const contadorEstadoModel = require('../../models/contadorEstado.model');
+//const contadorEstadoModel = require('../../models/contadorEstado.model');
 const historialRondasModel = require('../../models/historialRondas.model');
 const eliminarCentavos = (monto) => Math.floor(monto); // 10.99 → 10
 
