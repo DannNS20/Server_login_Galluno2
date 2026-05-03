@@ -628,4 +628,35 @@ router.put('/admin-change-password', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// PUT /toggle-credito/:username
+// Activa o desactiva la marca "creditoActivo" del usuario.
+// Si llega { creditoActivo: true|false } en el body, fuerza ese valor;
+// si no, hace toggle del valor actual.
+router.put('/toggle-credito/:username', async (req, res) => {
+    try {
+        const usernameParam = req.params.username;
+        const user = await User.findOne({ username: usernameParam });
+
+        if (!user) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        const nuevoValor = (typeof req.body?.creditoActivo === 'boolean')
+            ? req.body.creditoActivo
+            : !user.creditoActivo;
+
+        const updatedUser = await User.findOneAndUpdate(
+            { username: usernameParam },
+            { $set: { creditoActivo: nuevoValor } },
+            { new: true }
+        );
+
+        res.json({
+            success: nuevoValor ? 'Crédito activado' : 'Crédito desactivado',
+            user: updatedUser
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 module.exports = router;

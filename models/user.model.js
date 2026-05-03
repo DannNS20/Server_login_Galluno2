@@ -7,6 +7,8 @@ const userSchema = new Schema({
     image: String,
     rol: String,
     saldo: { type: Number, default:0},
+    
+    creditoActivo: { type: Boolean, default: false } // Marca de "Usuario con crédito"
 });
 
 
