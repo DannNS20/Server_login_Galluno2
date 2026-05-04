@@ -134,17 +134,11 @@ router.post('/setClave/:id', upload.single('file'), async (req, res) => {
             updateData,
             { new: true, upsert: true }
         );
- try {
-            const Mensaje = require('../../models/mensaje.model');
-            const purga = await Mensaje.deleteMany({ sala: req.body.clave });
-            console.log(`[CHAT PURGE] ${purga.deletedCount} mensajes borrados de sala "${req.body.clave}"`);
-        } catch (purgaError) {
-            console.error('[CHAT PURGE] Error al limpiar mensajes:', purgaError.message);
-        }
         // D. Purgar mensajes de chat de esta sala — cada stream arranca con
         // chat vacío. Si el admin reinicia un Stream con la misma clave
         // (ej. dos veces "Stream1-07-04-2026" en el día) los mensajes
         // anteriores no deben aparecer en la sesión nueva.
+        // Se ejecuta SIEMPRE, no solo cuando hay imagen.
         try {
             const Mensaje = require('../../models/mensaje.model');
             const purga = await Mensaje.deleteMany({ sala: req.body.clave });
